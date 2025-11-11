@@ -1,0 +1,88 @@
+{
+  "uid": "kafka-overview",
+  "title": "Kafka - Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["kafka","overview"],
+  "time": {"from":"now-6h","to":"now"},
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "job_jmx",
+        "label": "JMX Job",
+        "datasource": {"type":"prometheus","uid":"Prometheus"},
+        "query": "label_values(up, job)",
+        "includeAll": false,
+        "refresh": 1,
+        "current": {"text":"kafka-jmx","value":"kafka-jmx"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Brokers UP",
+      "gridPos": {"h":4,"w":4,"x":0,"y":0},
+      "targets":[{"expr":"sum(up{job=\"$job_jmx\"})","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type": "stat",
+      "title": "Active Controllers",
+      "gridPos": {"h":4,"w":4,"x":4,"y":0},
+      "targets":[{"expr":"sum(kafka_controller_activecontrollercount)","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type": "stat",
+      "title": "Under-replicated Partitions",
+      "gridPos": {"h":4,"w":4,"x":8,"y":0},
+      "targets":[{"expr":"sum(kafka_server_replicamanager_underreplicatedpartitions)","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type": "stat",
+      "title": "Consumer Lag (Total)",
+      "gridPos": {"h":4,"w":4,"x":12,"y":0},
+      "targets":[{"expr":"sum(kafka_consumergroup_lag)","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"stat",
+      "title":"Req Handler Idle (%)",
+      "gridPos":{"h":4,"w":4,"x":16,"y":0},
+      "targets":[{"expr":"avg(kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent)*100","datasource":{"type":"prometheus","uid":"Prometheus"}}],
+      "fieldConfig":{"defaults":{"unit":"percent"}}
+    },
+    {
+      "type":"timeseries",
+      "title":"Messages In /s (cluster)",
+      "gridPos":{"h":8,"w":12,"x":0,"y":4},
+      "targets":[{"expr":"sum(rate(kafka_server_brokertopicmetrics_messages_in_total[5m]))","legendFormat":"msg/s","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"timeseries",
+      "title":"Bytes In/Out /s (cluster)",
+      "gridPos":{"h":8,"w":12,"x":12,"y":4},
+      "targets":[
+        {"expr":"sum(rate(kafka_server_brokertopicmetrics_bytes_in_total[5m]))","legendFormat":"bytes_in/s","datasource":{"type":"prometheus","uid":"Prometheus"}},
+        {"expr":"sum(rate(kafka_server_brokertopicmetrics_bytes_out_total[5m]))","legendFormat":"bytes_out/s","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries",
+      "title":"Produce / Fetch Queue Size",
+      "gridPos":{"h":8,"w":12,"x":0,"y":12},
+      "targets":[
+        {"expr":"sum(kafka_network_requestmetrics_requestqueuesize{request=\"Produce\"})","legendFormat":"Produce","datasource":{"type":"prometheus","uid":"Prometheus"}},
+        {"expr":"sum(kafka_network_requestmetrics_requestqueuesize{request=~\"Fetch.*\"})","legendFormat":"Fetch","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries",
+      "title":"Consumer Lag by Group (Top 10)",
+      "gridPos":{"h":8,"w":12,"x":12,"y":12},
+      "targets":[
+        {"expr":"topk(10, sum by (group) (kafka_consumergroup_lag))","legendFormat":"{{group}}","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    }
+  ]
+}
+

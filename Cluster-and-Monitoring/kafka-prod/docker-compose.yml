@@ -1,0 +1,195 @@
+
+networks:
+  kafka-net: {}
+
+volumes:
+  kafka-1-data: {}
+  kafka-2-data: {}
+  kafka-3-data: {}
+  prometheus-data: {}
+  grafana-data: {}
+
+services:
+  # -----------------------
+  # Kafka (KRaft, no ZK)
+  # -----------------------
+  kafka-1:
+    image: ${KAFKA_IMAGE:-kafka:4.0.1}
+    container_name: kafka-1
+    hostname: kafka-1
+    networks: [kafka-net]
+    environment:
+      KAFKA_HOME: /opt/kafka
+      KAFKA_LOG_DIR: /var/lib/kafka/data
+      # Use the SAME cluster id for all three brokers (first run formats storage)
+      KAFKA_CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      # JMX only for the broker process (set inside start-kafka.sh)
+      JMX_ENABLE: "true"
+      JMX_PORT: "9999"
+      # Optional: set advertised listeners if you exposed externally
+      # KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+      - ./config/kafka-1.properties:/etc/kafka/server.properties:ro
+    depends_on: []
+    ports:
+      # For local testing, uncomment to map to host:
+      - "19092:9092"
+      - "19999:9999"
+      - "19404:9404" # jmx sidecar (if you expose it below)
+      # Leave internal ports to containers; Prometheus scrapes via service names
+    restart: unless-stopped
+
+  kafka-2:
+    image: ${KAFKA_IMAGE:-kafka:4.0.1}
+    container_name: kafka-2
+    hostname: kafka-2
+    networks: [kafka-net]
+    environment:
+      KAFKA_HOME: /opt/kafka
+      KAFKA_LOG_DIR: /var/lib/kafka/data
+      KAFKA_CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      JMX_ENABLE: "true"
+      JMX_PORT: "9999"
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+      - ./config/kafka-2.properties:/etc/kafka/server.properties:ro
+    restart: unless-stopped
+
+  kafka-3:
+    image: ${KAFKA_IMAGE:-kafka:4.0.1}
+    container_name: kafka-3
+    hostname: kafka-3
+    networks: [kafka-net]
+    environment:
+      KAFKA_HOME: /opt/kafka
+      KAFKA_LOG_DIR: /var/lib/kafka/data
+      KAFKA_CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      JMX_ENABLE: "true"
+      JMX_PORT: "9999"
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+      - ./config/kafka-3.properties:/etc/kafka/server.properties:ro
+    restart: unless-stopped
+
+  # -----------------------------------------
+  # JMX Exporters (built from GitHub v1.5.0)
+  # -----------------------------------------
+  jmx-kafka-1:
+    build:
+      context: ./jmx-exporter
+      dockerfile: Dockerfile
+      args:
+        JMX_EXPORTER_VERSION: "1.5.0"
+    container_name: jmx-kafka-1
+    hostname: jmx-kafka-1
+    networks: [kafka-net]
+    depends_on: [kafka-1]
+    environment:
+      JMX_TARGET_HOST: kafka-1
+      JMX_TARGET_PORT: 9999
+      # Optionally tune:
+      # JMX_EXPORTER_PORT: 9404
+    volumes:
+      - ./jmx-exporter/kafka.yml.tmpl:/opt/jmx/templates/kafka.yml.tmpl:ro
+    restart: unless-stopped
+    # For host debugging, uncomment:
+    # ports: ["9404:9404"]
+
+  jmx-kafka-2:
+    build:
+      context: ./jmx-exporter
+      dockerfile: Dockerfile
+      args:
+        JMX_EXPORTER_VERSION: "1.5.0"
+    container_name: jmx-kafka-2
+    hostname: jmx-kafka-2
+    networks: [kafka-net]
+    depends_on: [kafka-2]
+    environment:
+      JMX_TARGET_HOST: kafka-2
+      JMX_TARGET_PORT: 9999
+    volumes:
+      - ./jmx-exporter/kafka.yml.tmpl:/opt/jmx/templates/kafka.yml.tmpl:ro
+    restart: unless-stopped
+
+  jmx-kafka-3:
+    build:
+      context: ./jmx-exporter
+      dockerfile: Dockerfile
+      args:
+        JMX_EXPORTER_VERSION: "1.5.0"
+    container_name: jmx-kafka-3
+    hostname: jmx-kafka-3
+    networks: [kafka-net]
+    depends_on: [kafka-3]
+    environment:
+      JMX_TARGET_HOST: kafka-3
+      JMX_TARGET_PORT: 9999
+    volumes:
+      - ./jmx-exporter/kafka.yml.tmpl:/opt/jmx/templates/kafka.yml.tmpl:ro
+    restart: unless-stopped
+
+  # -----------------------
+  # Kafka Exporter (lag)
+  # -----------------------
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    hostname: kafka-exporter
+    networks: [kafka-net]
+    depends_on: [kafka-1, kafka-2, kafka-3]
+    command:
+      - '--kafka.server=kafka-1:9092'
+      - '--kafka.server=kafka-2:9092'
+      - '--kafka.server=kafka-3:9092'
+      - '--web.listen-address=:9308'
+      - '--web.telemetry-path=/metrics'
+      - '--refresh.metadata=30s'
+      - '--group.filter=.*'
+      - '--topic.filter=.*'
+    restart: unless-stopped
+    # For host debugging:
+    # ports: ["9308:9308"]
+
+  # -----------------------
+  # Prometheus
+  # -----------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    hostname: prometheus
+    networks: [kafka-net]
+    depends_on: [jmx-kafka-1, jmx-kafka-2, jmx-kafka-3, kafka-exporter]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  # -----------------------
+  # Grafana
+  # -----------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    hostname: grafana
+    networks: [kafka-net]
+    depends_on: [prometheus]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+

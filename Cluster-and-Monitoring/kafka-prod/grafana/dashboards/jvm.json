@@ -1,0 +1,53 @@
+{
+  "uid":"jvm-kafka",
+  "title":"JVM - Kafka Process",
+  "schemaVersion":39,
+  "version":1,
+  "tags":["jvm","kafka"],
+  "time":{"from":"now-6h","to":"now"},
+  "templating":{"list":[
+    {
+      "type":"query","name":"instance","label":"Broker (instance)","refresh":1,
+      "datasource":{"type":"prometheus","uid":"Prometheus"},
+      "query":"label_values(jvm_threads_current, instance)"
+    }
+  ]},
+  "panels":[
+    {
+      "type":"gauge","title":"Heap Used / Max",
+      "gridPos":{"h":8,"w":8,"x":0,"y":0},
+      "targets":[
+        {"expr":"jvm_memory_bytes_used{instance=~\"$instance\",area=\"heap\"}","legendFormat":"used","datasource":{"type":"prometheus","uid":"Prometheus"}},
+        {"expr":"jvm_memory_bytes_max{instance=~\"$instance\",area=\"heap\"}","legendFormat":"max","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ],
+      "options":{"reduceOptions":{"calcs":["last"]}},
+      "fieldConfig":{"defaults":{"unit":"bytes"}}
+    },
+    {
+      "type":"stat","title":"Threads (current)",
+      "gridPos":{"h":8,"w":4,"x":8,"y":0},
+      "targets":[{"expr":"jvm_threads_current{instance=~\"$instance\"}","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"timeseries","title":"GC Time (sum rate, s/s) by Collector",
+      "gridPos":{"h":8,"w":12,"x":12,"y":0},
+      "targets":[
+        {"expr":"sum by (gc) (rate(jvm_gc_collection_seconds_sum{instance=~\"$instance\"}[5m]))","legendFormat":"{{gc}}","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries","title":"Buffer Pools (bytes) - Direct/Mapped",
+      "gridPos":{"h":8,"w":12,"x":0,"y":8},
+      "targets":[
+        {"expr":"jvm_buffer_pool_used_bytes{instance=~\"$instance\",pool=\"direct\"}","legendFormat":"direct","datasource":{"type":"prometheus","uid":"Prometheus"}},
+        {"expr":"jvm_buffer_pool_used_bytes{instance=~\"$instance\",pool=\"mapped\"}","legendFormat":"mapped","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries","title":"Open FDs",
+      "gridPos":{"h":8,"w":12,"x":12,"y":8},
+      "targets":[{"expr":"process_open_fds{instance=~\"$instance\"}","legendFormat":"open_fds","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    }
+  ]
+}
+

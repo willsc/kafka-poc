@@ -1,0 +1,41 @@
+{
+  "uid":"metrics-browser",
+  "title":"Prometheus Metrics Browser (Kafka Stack)",
+  "schemaVersion":39,
+  "version":1,
+  "tags":["utils","browser"],
+  "time":{"from":"now-1h","to":"now"},
+  "templating":{"list":[
+    {
+      "type":"query","name":"job","label":"Job",
+      "datasource":{"type":"prometheus","uid":"Prometheus"},
+      "query":"label_values(up, job)","refresh":2,"includeAll":false,
+      "current":{"text":"kafka-jmx","value":"kafka-jmx"}
+    },
+    {
+      "type":"query","name":"instance","label":"Instance",
+      "datasource":{"type":"prometheus","uid":"Prometheus"},
+      "query":"label_values({job=\"$job\"}, instance)","refresh":2,"includeAll":true
+    },
+    {
+      "type":"query","name":"metric","label":"Metric",
+      "datasource":{"type":"prometheus","uid":"Prometheus"},
+      "query":"label_values({job=\"$job\"}, __name__)","refresh":2
+    }
+  ]},
+  "panels":[
+    {
+      "type":"timeseries",
+      "title":"$metric",
+      "gridPos":{"h":20,"w":24,"x":0,"y":0},
+      "targets":[
+        {
+          "expr":"$metric{job=\"$job\",instance=~\"$instance\"}",
+          "legendFormat":"{{instance}} {{__name__}} {{job}}",
+          "datasource":{"type":"prometheus","uid":"Prometheus"}
+        }
+      ]
+    }
+  ]
+}
+

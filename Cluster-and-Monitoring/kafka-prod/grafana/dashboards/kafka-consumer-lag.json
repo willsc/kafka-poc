@@ -1,0 +1,43 @@
+{
+  "uid":"kafka-consumer-lag",
+  "title":"Kafka - Consumer Lag",
+  "schemaVersion":39,
+  "version":1,
+  "tags":["kafka","consumer","lag"],
+  "time":{"from":"now-6h","to":"now"},
+  "templating":{"list":[
+    {
+      "type":"query","name":"group","label":"Consumer Group",
+      "datasource":{"type":"prometheus","uid":"Prometheus"},
+      "query":"label_values(kafka_consumergroup_lag, group)","refresh":1,"includeAll":true
+    },
+    {
+      "type":"query","name":"topic","label":"Topic",
+      "datasource":{"type":"prometheus","uid":"Prometheus"},
+      "query":"label_values(kafka_consumergroup_lag, topic)","refresh":1,"includeAll":true
+    }
+  ]},
+  "panels":[
+    {
+      "type":"stat","title":"Total Lag",
+      "gridPos":{"h":4,"w":6,"x":0,"y":0},
+      "targets":[{"expr":"sum(kafka_consumergroup_lag{group=~\"$group\",topic=~\"$topic\"})","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"table","title":"Lag by Group / Topic (Top 20)",
+      "gridPos":{"h":8,"w":24,"x":0,"y":4},
+      "targets":[{"expr":"topk(20, sum by (group, topic) (kafka_consumergroup_lag))","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"timeseries","title":"Lag by Group",
+      "gridPos":{"h":8,"w":12,"x":0,"y":12},
+      "targets":[{"expr":"sum by (group) (kafka_consumergroup_lag{topic=~\"$topic\"})","legendFormat":"{{group}}","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"timeseries","title":"Lag by Topic",
+      "gridPos":{"h":8,"w":12,"x":12,"y":12},
+      "targets":[{"expr":"sum by (topic) (kafka_consumergroup_lag{group=~\"$group\"})","legendFormat":"{{topic}}","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    }
+  ]
+}
+

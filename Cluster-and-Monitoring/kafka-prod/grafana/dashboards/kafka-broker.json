@@ -1,0 +1,66 @@
+{
+  "uid":"kafka-broker",
+  "title":"Kafka - Broker",
+  "schemaVersion":39,
+  "version":1,
+  "tags":["kafka","broker"],
+  "time":{"from":"now-6h","to":"now"},
+  "templating":{
+    "list":[
+      {
+        "type":"query","name":"instance","label":"Broker (instance)","refresh":1,
+        "datasource":{"type":"prometheus","uid":"Prometheus"},
+        "query":"label_values(up{job=\"kafka-jmx\"}, instance)"
+      }
+    ]
+  },
+  "panels":[
+    {
+      "type":"stat","title":"Under-replicated Partitions",
+      "gridPos":{"h":4,"w":6,"x":0,"y":0},
+      "targets":[{"expr":"kafka_server_replicamanager_underreplicatedpartitions{instance=~\"$instance\"}","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"stat","title":"Leader Count",
+      "gridPos":{"h":4,"w":6,"x":6,"y":0},
+      "targets":[{"expr":"kafka_server_replicamanager_leadercount{instance=~\"$instance\"}","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+    },
+    {
+      "type":"stat","title":"Request Handler Idle (%)",
+      "gridPos":{"h":4,"w":6,"x":12,"y":0},
+      "targets":[{"expr":"avg(kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent{instance=~\"$instance\"})*100","datasource":{"type":"prometheus","uid":"Prometheus"}}],
+      "fieldConfig":{"defaults":{"unit":"percent"}}
+    },
+    {
+      "type":"timeseries","title":"Bytes In/Out /s",
+      "gridPos":{"h":8,"w":12,"x":0,"y":4},
+      "targets":[
+        {"expr":"rate(kafka_server_brokertopicmetrics_bytes_in_total{instance=~\"$instance\"}[5m])","legendFormat":"bytes_in/s","datasource":{"type":"prometheus","uid":"Prometheus"}},
+        {"expr":"rate(kafka_server_brokertopicmetrics_bytes_out_total{instance=~\"$instance\"}[5m])","legendFormat":"bytes_out/s","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries","title":"Messages In /s",
+      "gridPos":{"h":8,"w":12,"x":12,"y":4},
+      "targets":[
+        {"expr":"rate(kafka_server_brokertopicmetrics_messages_in_total{instance=~\"$instance\"}[5m])","legendFormat":"msg/s","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries","title":"Request Queue Size (Produce/Fetch)",
+      "gridPos":{"h":8,"w":12,"x":0,"y":12},
+      "targets":[
+        {"expr":"kafka_network_requestmetrics_requestqueuesize{instance=~\"$instance\",request=\"Produce\"}","legendFormat":"Produce","datasource":{"type":"prometheus","uid":"Prometheus"}},
+        {"expr":"kafka_network_requestmetrics_requestqueuesize{instance=~\"$instance\",request=~\"Fetch.*\"}","legendFormat":"Fetch","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    },
+    {
+      "type":"timeseries","title":"Request Latency (TotalTime p95 ms)",
+      "gridPos":{"h":8,"w":12,"x":12,"y":12},
+      "targets":[
+        {"expr":"kafka_network_requestmetrics_time_ms{instance=~\"$instance\",phase=\"TotalTimeMs\",stat=\"95thPercentile\"}","legendFormat":"{{request}}","datasource":{"type":"prometheus","uid":"Prometheus"}}
+      ]
+    }
+  ]
+}
+

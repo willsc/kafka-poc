@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'kafka-jmx'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['jmx-kafka-1:9404','jmx-kafka-2:9404','jmx-kafka-3:9404']
+
+  - job_name: 'kafka-exporter'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+

@@ -1,0 +1,490 @@
+# kafka-k8s-stack-with-vars.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-cluster-id
+  namespace: kafka
+type: Opaque
+stringData:
+  cluster.id: MkU3OEVBNTcwNTJENDM2Qk  # change if you like
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-config
+  namespace: kafka
+data:
+  server.properties: |
+    process.roles=broker,controller
+    node.id=0
+    listeners=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+    advertised.listeners=PLAINTEXT://REPLACED_BY_SCRIPT,EXTERNAL://REPLACED_BY_SCRIPT
+    listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+    controller.listener.names=CONTROLLER
+    inter.broker.listener.name=PLAINTEXT
+    controller.quorum.voters=0@kafka-0.kafka-brokers.kafka.svc:9093,1@kafka-1.kafka-brokers.kafka.svc:9093,2@kafka-2.kafka-brokers.kafka.svc:9093
+    log.dirs=/var/lib/kafka/data
+    num.partitions=3
+    offsets.topic.replication.factor=3
+    transaction.state.log.replication.factor=3
+    transaction.state.log.min.isr=2
+    min.insync.replicas=2
+    group.initial.rebalance.delay.ms=0
+    auto.create.topics.enable=true
+  start-kafka.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CONF=/etc/kafka/server.properties
+    DATA_DIR=${KAFKA_LOG_DIR:-/var/lib/kafka/data}
+    META_FILE="$DATA_DIR/meta.properties"
+    POD_NAME="${POD_NAME:-${HOSTNAME}}"
+    ORDINAL="${POD_NAME##*-}"
+
+    sed -ri "s|^node.id=.*|node.id=${ORDINAL}|" "$CONF"
+    sed -ri "s|PLAINTEXT://REPLACED_BY_SCRIPT|PLAINTEXT://${POD_NAME}.kafka-brokers:9092|" "$CONF"
+
+    if [[ -n "${EXTERNAL_DOMAIN:-}" ]]; then
+      EXTERNAL_HOST="${POD_NAME}.${EXTERNAL_DOMAIN}"
+      sed -ri "s|EXTERNAL://REPLACED_BY_SCRIPT|EXTERNAL://${EXTERNAL_HOST}:9094|" "$CONF"
+    else
+      sed -ri "s|,?EXTERNAL://REPLACED_BY_SCRIPT||" "$CONF"
+      sed -ri "s|listeners=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094|listeners=PLAINTEXT://:9092,CONTROLLER://:9093|" "$CONF"
+      sed -ri "s|listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT|listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT|" "$CONF"
+    fi
+
+    if [[ ! -f "$META_FILE" ]]; then
+      CLUSTER_ID="${KAFKA_CLUSTER_ID:?missing KAFKA_CLUSTER_ID}"
+      echo "Formatting KRaft storage: $DATA_DIR clusterId=$CLUSTER_ID"
+      "${KAFKA_HOME}/bin/kafka-storage.sh" format -t "$CLUSTER_ID" -c "$CONF"
+    fi
+
+    export KAFKA_JMX_OPTS="-Dcom.sun.management.jmxremote \
+      -Dcom.sun.management.jmxremote.authenticate=false \
+      -Dcom.sun.management.jmxremote.ssl=false \
+      -Dcom.sun.management.jmxremote.local.only=false \
+      -Dcom.sun.management.jmxremote.port=${JMX_PORT:-9999} \
+      -Dcom.sun.management.jmxremote.rmi.port=${JMX_PORT:-9999} \
+      -Djava.rmi.server.hostname=${POD_NAME}"
+    exec "${KAFKA_HOME}/bin/kafka-server-start.sh" "$CONF"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jmx-exporter-config
+  namespace: kafka
+data:
+  kafka.yml: |
+    startDelaySeconds: 10
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    ssl: false
+    hostPort: 127.0.0.1:9999
+    rules:
+      - pattern: 'java.lang<type=(Memory|MemoryPool|Threading|ClassLoading|Runtime|OperatingSystem),.*>.*'
+      - pattern: 'java.nio<type=BufferPool,.*>.*'
+      - pattern: 'kafka\..*<.*>.*'
+      - pattern: '.*'
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-brokers
+  namespace: kafka
+  labels: { app: kafka }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: { app: kafka }
+  ports:
+    - { name: broker,     port: 9092, targetPort: 9092 }
+    - { name: controller, port: 9093, targetPort: 9093 }
+    - { name: jmx,        port: 9999, targetPort: 9999 }
+    - { name: metrics,    port: 9404, targetPort: 9404 }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-bootstrap
+  namespace: kafka
+  labels: { app: kafka }
+spec:
+  type: ClusterIP
+  selector: { app: kafka }
+  ports:
+    - { name: broker,  port: 9092, targetPort: 9092 }
+    - { name: metrics, port: 9404, targetPort: 9404 }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-0-external
+  namespace: kafka
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: kafka
+    statefulset.kubernetes.io/pod-name: kafka-0
+  ports:
+    - { name: external, port: 9094, targetPort: 9094 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-1-external
+  namespace: kafka
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: kafka
+    statefulset.kubernetes.io/pod-name: kafka-1
+  ports:
+    - { name: external, port: 9094, targetPort: 9094 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-2-external
+  namespace: kafka
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: kafka
+    statefulset.kubernetes.io/pod-name: kafka-2
+  ports:
+    - { name: external, port: 9094, targetPort: 9094 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-pdb
+  namespace: kafka
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: kafka }
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  serviceName: kafka-brokers
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector: { matchLabels: { app: kafka } }
+  template:
+    metadata:
+      labels: { app: kafka }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9404"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 60
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: { matchLabels: { app: kafka } }
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: broker
+          image: my-kafka:4.0.1
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - { name: KAFKA_HOME, value: /opt/kafka }
+            - { name: KAFKA_LOG_DIR, value: /var/lib/kafka/data }
+            - name: KAFKA_CLUSTER_ID
+              valueFrom: { secretKeyRef: { name: kafka-cluster-id, key: cluster.id } }
+            - { name: JMX_PORT, value: "9999" }
+            - { name: EXTERNAL_DOMAIN, value: "kafka.prod.example.com" } # change for LB DNS
+          ports:
+            - { name: broker,     containerPort: 9092 }
+            - { name: controller, containerPort: 9093 }
+            - { name: external,   containerPort: 9094 }
+            - { name: jmx,        containerPort: 9999 }
+          volumeMounts:
+            - { name: config,  mountPath: /etc/kafka }
+            - { name: scripts, mountPath: /usr/local/bin/start-kafka.sh, subPath: start-kafka.sh }
+            - { name: data,    mountPath: /var/lib/kafka/data }
+          command: ["/usr/local/bin/start-kafka.sh"]
+          readinessProbe:
+            exec:
+              command: ["/opt/kafka/bin/kafka-broker-api-versions.sh","--bootstrap-server","localhost:9092"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/opt/kafka/bin/kafka-broker-api-versions.sh","--bootstrap-server","localhost:9092"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+        - name: jmx-exporter
+          image: my-jmx-exporter:1.5.0
+          env:
+            - { name: JMX_TARGET_HOST, value: "127.0.0.1" }
+            - { name: JMX_TARGET_PORT, value: "9999" }
+            - { name: JMX_EXPORTER_PORT, value: "9404" }
+            - { name: JMX_CONFIG, value: "/etc/jmx/kafka.yml" }
+          ports:
+            - { name: metrics, containerPort: 9404 }
+          volumeMounts:
+            - { name: jmx-config, mountPath: /etc/jmx/kafka.yml, subPath: kafka.yml }
+      volumes:
+        - name: config
+          configMap:
+            name: kafka-config
+            items: [ { key: server.properties, path: server.properties } ]
+        - name: scripts
+          configMap:
+            name: kafka-config
+            defaultMode: 0755
+            items: [ { key: start-kafka.sh, path: start-kafka.sh, mode: 0755 } ]
+        - name: jmx-config
+          configMap:
+            name: jmx-exporter-config
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 100Gi } }
+        storageClassName: ${KAFKA_STORAGE_CLASS}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+  namespace: kafka
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: kafka-exporter } }
+  template:
+    metadata:
+      labels: { app: kafka-exporter }
+    spec:
+      containers:
+        - name: kafka-exporter
+          image: danielqsj/kafka-exporter:latest
+          args:
+            - '--kafka.server=kafka-0.kafka-brokers.kafka.svc:9092'
+            - '--kafka.server=kafka-1.kafka-brokers.kafka.svc:9092'
+            - '--kafka.server=kafka-2.kafka-brokers.kafka.svc:9092'
+            - '--web.listen-address=:9308'
+            - '--web.telemetry-path=/metrics'
+            - '--refresh.metadata=30s'
+            - '--group.filter=.*'
+            - '--topic.filter=.*'
+          ports:
+            - { name: http, containerPort: 9308 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  namespace: kafka
+spec:
+  selector: { app: kafka-exporter }
+  ports:
+    - { name: http, port: 9308, targetPort: 9308 }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: kafka
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    scrape_configs:
+      - job_name: 'kafka-jmx'
+        static_configs:
+          - targets:
+              - kafka-0.kafka-brokers.kafka.svc:9404
+              - kafka-1.kafka-brokers.kafka.svc:9404
+              - kafka-2.kafka-brokers.kafka.svc:9404
+      - job_name: 'kafka-exporter'
+        static_configs:
+          - targets: [ 'kafka-exporter.kafka.svc:9308' ]
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: [ 'localhost:9090' ]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: kafka
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: prometheus } }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.enable-lifecycle'
+          ports:
+            - { name: http, containerPort: 9090 }
+          volumeMounts:
+            - { name: config, mountPath: /etc/prometheus }
+            - { name: data,   mountPath: /prometheus }
+      volumes:
+        - name: config
+          configMap: { name: prometheus-config }
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: kafka
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 50Gi } }
+  storageClassName: ${PROM_STORAGE_CLASS}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: kafka
+spec:
+  type: LoadBalancer
+  selector: { app: prometheus }
+  ports:
+    - { name: http, port: 9090, targetPort: 9090 }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning
+  namespace: kafka
+data:
+  datasource.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.kafka.svc:9090
+        isDefault: true
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: 'Kafka Dashboards'
+        orgId: 1
+        folder: 'Kafka'
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: kafka
+data:
+  metrics-browser.json: |
+    { "uid":"metrics-browser","title":"Prometheus Metrics Browser (Kafka Stack)","schemaVersion":39,"version":1,
+      "time":{"from":"now-1h","to":"now"},
+      "templating":{"list":[
+        {"type":"query","name":"job","label":"Job","datasource":{"type":"prometheus","uid":"Prometheus"},"query":"label_values(up, job)","refresh":2},
+        {"type":"query","name":"instance","label":"Instance","datasource":{"type":"prometheus","uid":"Prometheus"},"query":"label_values({job=\"$job\"}, instance)","refresh":2,"includeAll":true},
+        {"type":"query","name":"metric","label":"Metric","datasource":{"type":"prometheus","uid":"Prometheus"},"query":"label_values({job=\"$job\"}, __name__)","refresh":2}
+      ]},
+      "panels":[
+        {"type":"timeseries","title":"$metric","gridPos":{"h":20,"w":24,"x":0,"y":0},
+         "targets":[{"expr":"$metric{job=\"$job\",instance=~\"$instance\"}","legendFormat":"{{instance}} {{__name__}}","datasource":{"type":"prometheus","uid":"Prometheus"}}]
+        }
+      ] }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: kafka
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grafana } }
+  template:
+    metadata:
+      labels: { app: grafana }
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          env:
+            - { name: GF_SECURITY_ADMIN_USER, value: "admin" }
+            - { name: GF_SECURITY_ADMIN_PASSWORD, value: "admin" }
+            - { name: GF_PATHS_PROVISIONING, value: "/etc/grafana/provisioning" }
+          ports:
+            - { name: http, containerPort: 3000 }
+          volumeMounts:
+            - { name: data,           mountPath: /var/lib/grafana }
+            - { name: provisioning,   mountPath: /etc/grafana/provisioning }
+            - { name: dashboards,     mountPath: /var/lib/grafana/dashboards }
+      volumes:
+        - name: provisioning
+          configMap:
+            name: grafana-provisioning
+            items:
+              - { key: datasource.yml, path: datasources/datasource.yml }
+              - { key: dashboards.yml, path: dashboards/dashboards.yml }
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: kafka
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 10Gi } }
+  storageClassName: ${GRAFANA_STORAGE_CLASS}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: kafka
+spec:
+  type: LoadBalancer
+  selector: { app: grafana }
+  ports:
+    - { name: http, port: 3000, targetPort: 3000 }
+

@@ -1,0 +1,78 @@
+# storage-classes.yaml
+---
+# WEKA CSI secret (API-based model). Fill in base64 values per docs.
+# Ref: WEKA CSI "Storage class configurations" (API secret + dir/fs-backed SC) :contentReference[oaicite:1]{index=1}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-wekafs-api-secret
+  namespace: csi-wekafs
+type: Opaque
+data:
+  username: YWRtaW4=             # admin (base64)
+  password: YWRtaW4=             # admin (base64)
+  organization: Um9vdA==         # Root (base64)
+  endpoints: MTkyLjMCLjEuMTo...  # comma-separated <IP:14000>, base64
+  scheme: aHR0cA==               # http or https, base64
+
+---
+# WEKA directory-backed StorageClass (good general choice; quotas optional)
+# name: storageclass-wekafs-dir-api
+# Ref: official example (provisioner csi.weka.io, volumeType dir/v1, filesystemName, secrets) :contentReference[oaicite:2]{index=2}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: storageclass-wekafs-dir-api
+provisioner: csi.weka.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+parameters:
+  volumeType: dir/v1
+  filesystemName: default
+  capacityEnforcement: HARD
+  csi.storage.k8s.io/provisioner-secret-name: csi-wekafs-api-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: csi-wekafs
+  csi.storage.k8s.io/controller-publish-secret-name: csi-wekafs-api-secret
+  csi.storage.k8s.io/controller-publish-secret-namespace: csi-wekafs
+  csi.storage.k8s.io/controller-expand-secret-name: csi-wekafs-api-secret
+  csi.storage.k8s.io/controller-expand-secret-namespace: csi-wekafs
+  csi.storage.k8s.io/node-stage-secret-name: csi-wekafs-api-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: csi-wekafs
+  csi.storage.k8s.io/node-publish-secret-name: csi-wekafs-api-secret
+  csi.storage.k8s.io/node-publish-secret-namespace: csi-wekafs
+
+---
+# Rook-Ceph: CephBlockPool + RBD StorageClass (RWO; good for Kafka logs/Prometheus TSDB)
+# NOTE: If your Rook namespace isn't rook-ceph, change the provisioner prefix accordingly. :contentReference[oaicite:3]{index=3}
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  replicated:
+    size: 3
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-ceph-block
+provisioner: rook-ceph.rbd.csi.ceph.com     # adjust prefix to your operator namespace
+parameters:
+  clusterID: rook-ceph
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+  # Ceph docs default to ext4 here (xfs can be problematic in hyperconverged). :contentReference[oaicite:4]{index=4}
+  csi.storage.k8s.io/fstype: ext4
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+

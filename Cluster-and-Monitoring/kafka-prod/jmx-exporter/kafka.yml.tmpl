@@ -1,0 +1,184 @@
+startDelaySeconds: 10
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+ssl: false
+
+# Rendered by entrypoint.sh with envsubst
+hostPort: ${JMX_TARGET_HOST}:${JMX_TARGET_PORT}
+
+rules:
+  # ==== JVM CORE ====
+  - pattern: 'java.lang<type=Memory><>HeapMemoryUsage'
+    name: jvm_memory_bytes_used
+    value: $.used
+    labels: { area: "heap" }
+  - pattern: 'java.lang<type=Memory><>HeapMemoryUsage'
+    name: jvm_memory_bytes_max
+    value: $.max
+    labels: { area: "heap" }
+  - pattern: 'java.lang<type=Memory><>NonHeapMemoryUsage'
+    name: jvm_memory_bytes_used
+    value: $.used
+    labels: { area: "nonheap" }
+  - pattern: 'java.lang<type=Memory><>NonHeapMemoryUsage'
+    name: jvm_memory_bytes_max
+    value: $.max
+    labels: { area: "nonheap" }
+  - pattern: 'java.lang<type=MemoryPool, name=(.+)><>Usage'
+    name: jvm_memory_pool_bytes_used
+    value: $.used
+    labels: { pool: "$1" }
+  - pattern: 'java.lang<type=MemoryPool, name=(.+)><>Usage'
+    name: jvm_memory_pool_bytes_max
+    value: $.max
+    labels: { pool: "$1" }
+  - pattern: 'java.lang<type=Threading><>ThreadCount'
+    name: jvm_threads_current
+  - pattern: 'java.lang<type=Threading><>DaemonThreadCount'
+    name: jvm_threads_daemon
+  - pattern: 'java.lang<type=Threading><>PeakThreadCount'
+    name: jvm_threads_peak
+  - pattern: 'java.lang<type=Runtime><>Uptime'
+    name: jvm_uptime_ms
+  - pattern: 'java.lang<type=GarbageCollector, name=(.+)><>CollectionCount'
+    name: jvm_gc_collection_seconds_count
+    type: COUNTER
+    labels: { gc: "$1" }
+  - pattern: 'java.lang<type=GarbageCollector, name=(.+)><>CollectionTime'
+    name: jvm_gc_collection_seconds_sum
+    value: 0.001 * $0
+    type: COUNTER
+    labels: { gc: "$1" }
+  - pattern: 'java.lang<type=OperatingSystem><>OpenFileDescriptorCount'
+    name: process_open_fds
+  - pattern: 'java.lang<type=OperatingSystem><>MaxFileDescriptorCount'
+    name: process_max_fds
+  - pattern: 'java.lang<type=OperatingSystem><>ProcessCpuLoad'
+    name: process_cpu_load
+  - pattern: 'java.lang<type=OperatingSystem><>SystemCpuLoad'
+    name: system_cpu_load
+  - pattern: 'java.lang<type=OperatingSystem><>SystemLoadAverage'
+    name: system_load_average_1m
+  - pattern: 'java.nio<type=BufferPool, name=(.+)><>Count'
+    name: jvm_buffer_pool_used_buffers
+    labels: { pool: "$1" }
+  - pattern: 'java.nio<type=BufferPool, name=(.+)><>MemoryUsed'
+    name: jvm_buffer_pool_used_bytes
+    labels: { pool: "$1" }
+  - pattern: 'java.nio<type=BufferPool, name=(.+)><>TotalCapacity'
+    name: jvm_buffer_pool_capacity_bytes
+    labels: { pool: "$1" }
+
+  # ==== KAFKA CONTROLLER ====
+  - pattern: 'kafka.controller<type=KafkaController><>ActiveControllerCount'
+    name: kafka_controller_activecontrollercount
+  - pattern: 'kafka.controller<type=ControllerStats, name=LeaderElectionRateAndTimeMs><>Count'
+    name: kafka_controller_leader_elections_total
+    type: COUNTER
+  - pattern: 'kafka.controller<type=ControllerStats, name=UncleanLeaderElectionsPerSec><>Count'
+    name: kafka_controller_unclean_leader_elections_total
+    type: COUNTER
+
+  # ==== REPLICA / PARTITION HEALTH ====
+  - pattern: 'kafka.server<type=ReplicaManager><>UnderReplicatedPartitions'
+    name: kafka_server_replicamanager_underreplicatedpartitions
+  - pattern: 'kafka.server<type=ReplicaManager><>OfflinePartitionsCount'
+    name: kafka_server_replicamanager_offlinepartitionscount
+  - pattern: 'kafka.server<type=ReplicaManager><>PartitionCount'
+    name: kafka_server_replicamanager_partitioncount
+  - pattern: 'kafka.server<type=ReplicaManager><>LeaderCount'
+    name: kafka_server_replicamanager_leadercount
+  - pattern: 'kafka.server<type=ReplicaManager><>AtMinIsrPartitionCount'
+    name: kafka_server_replicamanager_at_min_isr_partitioncount
+  - pattern: 'kafka.server<type=ReplicaManager><>IsrShrinksPerSec'
+    name: kafka_server_replicamanager_isr_shrinks_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=ReplicaManager><>IsrExpandsPerSec'
+    name: kafka_server_replicamanager_isr_expands_total
+    type: COUNTER
+
+  # ==== BROKER THROUGHPUT ====
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_messages_in_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_bytes_in_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_bytes_out_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesRejectedPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_bytes_rejected_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=FailedFetchRequestsPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_failed_fetch_requests_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=FailedProduceRequestsPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_failed_produce_requests_total
+    type: COUNTER
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=(MessagesInPerSec|BytesInPerSec|BytesOutPerSec)><>OneMinuteRate'
+    name: kafka_server_brokertopicmetrics_rate_1m
+    labels: { metric: "$1" }
+
+  # ==== REQUEST PATH / LATENCIES ====
+  - pattern: 'kafka.network<type=RequestMetrics, name=RequestQueueSize, request=(.+)><>Value'
+    name: kafka_network_requestmetrics_requestqueuesize
+    labels: { request: "$1" }
+  - pattern: 'kafka.server<type=KafkaRequestHandlerPool><>RequestHandlerAvgIdlePercent'
+    name: kafka_server_kafkarequesthandlerpool_requesthandleravgidlepercent
+  - pattern: 'kafka.network<type=RequestMetrics, name=(LocalTimeMs|RemoteTimeMs|TotalTimeMs|QueueTimeMs|ResponseSendTimeMs|RequestQueueTimeMs|ThrottleTimeMs), request=(.+)><>(Mean|50thPercentile|95thPercentile|98thPercentile|99thPercentile|999thPercentile|Count)'
+    name: kafka_network_requestmetrics_time_ms
+    labels: { phase: "$1", request: "$2", stat: "$3" }
+
+  # ==== NETWORK / SOCKETS ====
+  - pattern: 'kafka.network<type=Processor, name=IdlePercent, networkProcessor=(\\d+)><>Value'
+    name: kafka_network_processor_idle_percent
+    labels: { network_processor: "$1" }
+  - pattern: 'kafka.network<type=SocketServer><>NetworkProcessorAvgIdlePercent'
+    name: kafka_network_socketserver_processor_avg_idle_percent
+  - pattern: 'kafka.network<type=SocketServer><>ConnectionCount'
+    name: kafka_network_socketserver_connection_count
+  - pattern: 'kafka.network<type=SocketServer><>ExpiredConnectionsKilledCount'
+    name: kafka_network_socketserver_expired_connections_killed_total
+    type: COUNTER
+
+  # ==== LOGGING / I/O ====
+  - pattern: 'kafka.log<type=LogCleaner><>MaxCompactionLagMs'
+    name: kafka_log_logcleaner_max_compaction_lag_ms
+  - pattern: 'kafka.log<type=LogCleaner><>DeadThreadCount'
+    name: kafka_log_logcleaner_dead_thread_count
+  - pattern: 'kafka.log<type=LogCleaner, name=CleanableBytes><>Value'
+    name: kafka_log_logcleaner_cleanable_bytes
+  - pattern: 'kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>(Count|OneMinuteRate|95thPercentile|99thPercentile|999thPercentile)'
+    name: kafka_log_flush
+    labels: { stat: "$1" }
+
+  # ==== COORDINATORS ====
+  - pattern: 'kafka.coordinator.group<type=GroupCoordinator><>NumGroups'
+    name: kafka_groupcoordinator_num_groups
+  - pattern: 'kafka.coordinator.group<type=GroupCoordinator><>NumOffsets'
+    name: kafka_groupcoordinator_num_offsets
+  - pattern: 'kafka.coordinator.transaction<type=TransactionCoordinator><>NumTransactionalIds'
+    name: kafka_txncoordinator_num_transactional_ids
+  - pattern: 'kafka.coordinator.transaction<type=TransactionCoordinator, name=TxnAbortTimeMs><>(Count|OneMinuteRate|95thPercentile|99thPercentile|999thPercentile)'
+    name: kafka_txncoordinator_abort
+    labels: { stat: "$1" }
+  - pattern: 'kafka.coordinator.transaction<type=TransactionCoordinator, name=TxnCommitTimeMs><>(Count|OneMinuteRate|95thPercentile|99thPercentile|999thPercentile)'
+    name: kafka_txncoordinator_commit
+    labels: { stat: "$1" }
+
+  # ==== (Optional) HIGH-CARDINALITY PER TOPIC/PARTITION ====
+  # Uncomment if you really want per-topic/partition series.
+  # - pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec, topic=(.+)><>Count'
+  #   name: kafka_server_brokertopicmetrics_messages_in_total
+  #   type: COUNTER
+  #   labels: { topic: "$1" }
+  # - pattern: 'kafka.log<type=Log, name=Size, topic=(.+), partition=(\\d+)><>Value'
+  #   name: kafka_log_log_size_bytes
+  #   labels: { topic: "$1", partition: "$2" }
+
+  # ==== CATCH-ALL: EXPORT EVERYTHING ELSE ====
+  # This ensures nothing is missed. The exporter will generate metric/label
+  # names automatically (sanitized), per its default format.
+  - pattern: '.*'
+
